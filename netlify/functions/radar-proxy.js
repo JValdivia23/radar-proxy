@@ -68,15 +68,78 @@ exports.handler = async (event) => {
 
   // ── /api/radar → NOAA render endpoint ───────────────────────────
   if (path.includes("/api/radar")) {
-    const url = new URL(
+    const baseUrl =
       "https://mrms.nssl.noaa.gov/qvs/product_viewer/local/" +
-        "render_multi_domain_product_layer.php",
-    );
-    Object.entries(params).forEach(([k, v]) =>
-      url.searchParams.set(k, v),
-    );
+      "render_multi_domain_product_layer.php";
 
-    const resp = await noaaGet(url.toString());
+    // --- resolve time (mirrors mrms_core.py ln 143-151) ------------
+    let year, month, day, hour, minute;
+    if (params.year == null) {
+      const now = new Date();
+      const m = Math.floor(now.getUTCMinutes() / 2) * 2;
+      const d = new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          now.getUTCHours(),
+          m - 4,
+        ),
+      );
+      year = d.getUTCFullYear();
+      month = d.getUTCMonth() + 1;
+      day = d.getUTCDate();
+      hour = d.getUTCHours();
+      minute = d.getUTCMinutes();
+    } else {
+      year = +params.year;
+      month = +params.month;
+      day = +params.day;
+      hour = +params.hour;
+      minute = +params.minute;
+    }
+
+    // --- retry loop (mirrors mrms_core.py ln 156-241) ---------------
+    let lastResp = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const stepMin = minute - attempt * 2;
+      const t = new Date(
+        Date.UTC(year, month - 1, day, hour, stepMin),
+      );
+      const url = new URL(baseUrl);
+      url.searchParams.set("mode", "run");
+      url.searchParams.set(
+        "cpp_exec_dir",
+        "/home/metop/web/specific/opv/",
+      );
+      url.searchParams.set(
+        "web_resources_dir",
+        "/var/www/html/qvs/product_viewer/resources/",
+      );
+      url.searchParams.set("prod_root", params.product || "M3DL13");
+      url.searchParams.set("qperate_pal_option", "0");
+      url.searchParams.set("qpe_pal_option", "0");
+      url.searchParams.set("year", String(t.getUTCFullYear()));
+      url.searchParams.set("month", String(t.getUTCMonth() + 1));
+      url.searchParams.set("day", String(t.getUTCDate()));
+      url.searchParams.set("hour", String(t.getUTCHours()));
+      url.searchParams.set("minute", String(t.getUTCMinutes()));
+      url.searchParams.set(
+        "clon",
+        params.lon || String(params.clon || "-104.68"),
+      );
+      url.searchParams.set(
+        "clat",
+        params.lat || String(params.clat || "40.55"),
+      );
+      url.searchParams.set("zoom", params.zoom || "7");
+      url.searchParams.set("width", params.width || "920");
+      url.searchParams.set("height", params.height || "630");
+
+      lastResp = await noaaGet(url.toString());
+      if (lastResp.body.length >= 1024) break;
+    }
+
     return {
       statusCode: 200,
       headers: {
@@ -84,7 +147,9 @@ exports.handler = async (event) => {
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=120",
       },
-      body: resp.body.toString("base64"),
+      body: (lastResp || { body: Buffer.alloc(0) }).body.toString(
+        "base64",
+      ),
       isBase64Encoded: true,
     };
   }
