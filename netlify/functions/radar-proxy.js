@@ -75,22 +75,33 @@ exports.handler = async (event) => {
     // --- resolve time (mirrors mrms_core.py ln 143-151) ------------
     let year, month, day, hour, minute;
     if (params.year == null) {
-      const now = new Date();
-      const m = Math.floor(now.getUTCMinutes() / 2) * 2;
-      const d = new Date(
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate(),
-          now.getUTCHours(),
-          m - 4,
-        ),
-      );
-      year = d.getUTCFullYear();
-      month = d.getUTCMonth() + 1;
-      day = d.getUTCDate();
-      hour = d.getUTCHours();
-      minute = d.getUTCMinutes();
+      if (params.time != null) {
+        // Explicit timestamp from frontend (ISO 8601, e.g. 2026-06-09T18:40)
+        const dt = new Date(params.time + ":00Z");
+        year = dt.getUTCFullYear();
+        month = dt.getUTCMonth() + 1;
+        day = dt.getUTCDate();
+        hour = dt.getUTCHours();
+        minute = dt.getUTCMinutes();
+      } else {
+        // Live request — compute current UTC minus 4 min, rounded to 2-min window
+        const now = new Date();
+        const m = Math.floor(now.getUTCMinutes() / 2) * 2;
+        const d = new Date(
+          Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth(),
+            now.getUTCDate(),
+            now.getUTCHours(),
+            m - 4,
+          ),
+        );
+        year = d.getUTCFullYear();
+        month = d.getUTCMonth() + 1;
+        day = d.getUTCDate();
+        hour = d.getUTCHours();
+        minute = d.getUTCMinutes();
+      }
     } else {
       year = +params.year;
       month = +params.month;
@@ -101,11 +112,18 @@ exports.handler = async (event) => {
 
     // --- retry loop (mirrors mrms_core.py ln 156-241) ---------------
     let lastResp = null;
+    let usedTs = "";
     for (let attempt = 0; attempt < 6; attempt++) {
       const stepMin = minute - attempt * 2;
       const t = new Date(
         Date.UTC(year, month - 1, day, hour, stepMin),
       );
+      usedTs =
+        `${t.getUTCFullYear()}-` +
+        `${String(t.getUTCMonth() + 1).padStart(2, "0")}-` +
+        `${String(t.getUTCDate()).padStart(2, "0")}T` +
+        `${String(t.getUTCHours()).padStart(2, "0")}:` +
+        `${String(t.getUTCMinutes()).padStart(2, "0")}:00`;
       const url = new URL(baseUrl);
       url.searchParams.set("mode", "run");
       url.searchParams.set(
@@ -146,6 +164,7 @@ exports.handler = async (event) => {
         ...corsHeaders,
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=120",
+        "X-MRMS-Timestamp": usedTs,
       },
       body: (lastResp || { body: Buffer.alloc(0) }).body.toString(
         "base64",
