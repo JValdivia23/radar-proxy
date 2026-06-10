@@ -1,0 +1,14 @@
+[build]
+  command = "echo 'no build step'"
+  publish = "."
+
+[build.environment]
+  NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/radar-proxy"
+  status = 200
