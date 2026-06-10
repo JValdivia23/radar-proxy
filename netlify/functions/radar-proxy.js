@@ -165,6 +165,7 @@ exports.handler = async (event) => {
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=120",
         "X-MRMS-Timestamp": usedTs,
+        "Access-Control-Expose-Headers": "X-MRMS-Timestamp",
       },
       body: (lastResp || { body: Buffer.alloc(0) }).body.toString(
         "base64",
